@@ -52,6 +52,7 @@ import           Data.Function                          (on)
 import           Data.List                              (find, maximumBy, sort)
 import           Data.Maybe                             (fromMaybe, isNothing,
                                                          listToMaybe, mapMaybe)
+import           Data.Serialize                         (decode, encode)
 import           Data.String.Conversions                (cs)
 import           Data.Word                              (Word32)
 import           Database.Esqueleto                     (Esqueleto, Value, asc,
