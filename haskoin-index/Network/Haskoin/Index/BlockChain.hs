@@ -117,8 +117,7 @@ blockDownload action = do
 
     -- index the blocks
     startTime <- liftIO getCurrentTime
-    (resM, cnt) <-
-        peerBlockSource pid peerSessionHost (map nodeHash ns) $$ indexBlocks
+    resM <- peerBlockSource pid peerSessionHost (map nodeHash ns) $$ indexBlocks
     endTime <- liftIO getCurrentTime
     let diff = diffUTCTime endTime startTime
 
@@ -129,7 +128,6 @@ blockDownload action = do
             $(logInfo) $ formatPid pid peerSessionHost $ unwords
                 [ "Blocks indexed at height"
                 , show height, "in", show diff
-                , "(", show $ (fromIntegral cnt)/diff, "w/s", ")"
                 ]
             bwDone <- atomicallyNodeT $ do
                 updateBlockWindow head $ \bw ->
@@ -177,14 +175,14 @@ blockDownload action = do
     ns     = actionNodes action
     head   = nodeHash $ last ns
     height = nodeBlockHeight $ last ns
-    indexBlocks = go Nothing 0
-    go prevM cnt = await >>= \resM -> case resM of
+    indexBlocks = go Nothing
+    go prevM = await >>= \resM -> case resM of
         Just b -> do
             lift $ atomicallyNodeT $ updateBlockWindow head $ \bw ->
                 bw{ blockWindowCount = blockWindowCount bw + 1 }
-            cnt' <- lift $ indexBlock b
-            go resM $ cnt + cnt'
-        _ -> return (prevM, cnt)
+            lift $ indexBlock b
+            go resM
+        _ -> return prevM
     logBlockChainAction action = case action of
         BestChain nodes -> $(logInfo) $ pack $ unwords
             [ "Indexed best chain at height"
@@ -520,7 +518,7 @@ initLevelDB = withDBLock $ do
     resM <- liftIO $ L.get db def "0-bestindexedblock"
     when (isNothing resM) $ setBestIndexedBlock $ nodeHash genesisBlock
 
-indexBlock :: (MonadLoggerIO m, MonadBaseControl IO m) => Block -> NodeT m Int
+indexBlock :: (MonadLoggerIO m, MonadBaseControl IO m) => Block -> NodeT m ()
 indexBlock b@(Block _ txs) = do
     db <- asks sharedLevelDB
     $(logDebug) $ pack $ unwords
@@ -528,11 +526,9 @@ indexBlock b@(Block _ txs) = do
         , cs $ blockHashToHex $ headerHash $ blockHeader b
         , "containing", show (length txs), "txs"
         ]
-    let batch = concat $! map txBatch txs
-    withDBLock $ L.write db def batch
-    return $! length batch
+    withDBLock $ L.write db def $ concat $! map txBatch txs
 
-indexTx :: (MonadLoggerIO m, MonadBaseControl IO m) => Tx -> NodeT m Int
+indexTx :: (MonadLoggerIO m, MonadBaseControl IO m) => Tx -> NodeT m ()
 indexTx tx = do
     db <- asks sharedLevelDB
     $(logDebug) $ pack $ unwords
@@ -541,7 +537,6 @@ indexTx tx = do
         ]
     let batch = txBatch tx
     withDBLock $ L.write db def batch
-    return $ length batch
 
 txBatch :: Tx -> L.WriteBatch
 txBatch tx =
