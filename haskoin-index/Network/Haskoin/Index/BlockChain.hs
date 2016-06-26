@@ -51,7 +51,7 @@ blockSync = do
     go []
   where
     go as
-      | length as >= 5 = do
+      | length as >= 10 = do
           (a, ()) <- waitAny as
           go (delete a as)
       | otherwise = do
@@ -129,7 +129,7 @@ blockDownload action = do
             $(logInfo) $ formatPid pid peerSessionHost $ unwords
                 [ "Blocks indexed at height"
                 , show height, "in", show diff
-                , "(", show cnt, "values", ")"
+                , "(", show $ (fromIntegral cnt)/diff, "w/s", ")"
                 ]
             bwDone <- atomicallyNodeT $ do
                 updateBlockWindow head $ \bw ->
@@ -528,9 +528,9 @@ indexBlock b@(Block _ txs) = do
         , cs $ blockHashToHex $ headerHash $ blockHeader b
         , "containing", show (length txs), "txs"
         ]
-    let batch = concat $ map txBatch txs
+    let batch = concat $! map txBatch txs
     withDBLock $ L.write db def batch
-    return $ length batch
+    return $! length batch
 
 indexTx :: (MonadLoggerIO m, MonadBaseControl IO m) => Tx -> NodeT m Int
 indexTx tx = do
@@ -548,7 +548,7 @@ txBatch tx =
     map (\a -> L.Put (key a) val) txAddrs
   where
     (l, val) = BS.splitAt 16 $ encode txid
-    key a = encode a `BS.append` l
+    key a = (encode a) `BS.append` l
     txid = txHash tx
     txAddrs = rights addrs
     addrs = map fIn (txIn tx) ++ map fOut (txOut tx)
