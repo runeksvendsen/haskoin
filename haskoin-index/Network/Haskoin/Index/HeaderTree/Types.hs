@@ -1,11 +1,7 @@
 module Network.Haskoin.Index.HeaderTree.Types where
 
-<<<<<<< 311bf49f4a22595ab7de7426c5dfd40a275e131e
 import           Data.Serialize        (decode, encode)
 import           Data.String           (fromString)
-=======
-import           Data.Serialize        (encode)
->>>>>>> Move from binary to cereal
 import           Data.Word             (Word32, Word64)
 import           Database.Persist      (PersistField (..), PersistValue (..),
                                         SqlType (..))
