@@ -99,7 +99,7 @@ runIndex cfg = maybeDetach cfg $ run $ do
         -- Spin up all the peers
         [ runNodeT (void $ mapConcurrently startPeer hosts) state
         -- Blockchain download and address indexing
-        , runNodeT (headerSync >> blockSync) state
+        , runNodeT (headerSync >> blockSync (length nodes)) state
         -- Initial head sync
         , runNodeT startTickle state
         -- Import solo transactions as they arrive from peers

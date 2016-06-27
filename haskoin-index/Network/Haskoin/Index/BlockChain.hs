@@ -15,7 +15,10 @@ import           Control.Monad.Reader             (asks)
 import           Control.Monad.Trans              (MonadIO, lift, liftIO)
 import           Control.Monad.Trans.Control      (MonadBaseControl,
                                                    liftBaseOp_)
-import qualified Data.ByteString                  as BS (append, splitAt, tail)
+import qualified Data.ByteString                  as BS (ByteString, append,
+                                                         drop, head, length,
+                                                         null, splitAt, tail,
+                                                         take)
 import           Data.Conduit                     (Source, await, yield, ($$))
 import           Data.Default                     (def)
 import           Data.Either                      (rights)
@@ -24,8 +27,10 @@ import qualified Data.Map                         as M (delete, elems, fromList,
                                                         insert, keys, lookup,
                                                         notMember, null, toList)
 import           Data.Maybe                       (fromMaybe, isNothing,
-                                                   listToMaybe)
-import           Data.Serialize                   (decode, encode)
+                                                   listToMaybe, mapMaybe)
+import           Data.Serialize                   (decode, encode, getWord16le,
+                                                   getWord32le, getWord8,
+                                                   runGet)
 import           Data.String.Conversions          (cs)
 import           Data.Text                        (pack)
 import           Data.Time.Clock                  (diffUTCTime, getCurrentTime)
@@ -40,18 +45,19 @@ import           Network.Haskoin.Block
 import           Network.Haskoin.Crypto
 import           Network.Haskoin.Index.HeaderTree
 import           Network.Haskoin.Index.Peer
+import           Network.Haskoin.Index.Settings
 import           Network.Haskoin.Index.STM
 import           Network.Haskoin.Node
 import           Network.Haskoin.Script
 import           Network.Haskoin.Transaction
 import           Network.Haskoin.Util
 
-blockSync :: (MonadLoggerIO m, MonadBaseControl IO m) => NodeT m ()
-blockSync = do
+blockSync :: (MonadLoggerIO m, MonadBaseControl IO m) => Int -> NodeT m ()
+blockSync nodes = do
     go []
   where
     go as
-      | length as >= 10 = do
+      | length as >= nodes + 1 = do
           (a, ()) <- waitAny as
           go (delete a as)
       | otherwise = do
@@ -122,7 +128,7 @@ blockDownload action = do
     let diff = diffUTCTime endTime startTime
 
     -- Check if the full batch was downloaded
-    if (headerHash . blockHeader <$> resM) == Just head
+    if resM == Just head
         then withDBLock $ do
             logBlockChainAction action
             $(logInfo) $ formatPid pid peerSessionHost $ unwords
@@ -181,7 +187,7 @@ blockDownload action = do
             lift $ atomicallyNodeT $ updateBlockWindow head $ \bw ->
                 bw{ blockWindowCount = blockWindowCount bw + 1 }
             lift $ indexBlock b
-            go resM
+            go $ Just $ headerHash $ blockHeader b
         _ -> return prevM
     logBlockChainAction action = case action of
         BestChain nodes -> $(logInfo) $ pack $ unwords
@@ -540,15 +546,46 @@ indexTx tx = do
 
 txBatch :: Tx -> L.WriteBatch
 txBatch tx =
-    map (\a -> L.Put (key a) val) txAddrs
+    map (\a -> L.Put (a `BS.append` txLeft) txRight) txAddrs ++
+    map (\o -> L.Put (encode o `BS.append` txLeft) txRight) txOps
   where
-    (l, val) = BS.splitAt 16 $ encode txid
-    key a = (encode a) `BS.append` l
     txid = txHash tx
-    txAddrs = rights addrs
-    addrs = map fIn (txIn tx) ++ map fOut (txOut tx)
-    fIn  = inputAddress <=< (decodeInputBS . scriptInput)
-    fOut = outputAddress <=< (decodeOutputBS . scriptOutput)
+    (txLeft, txRight) = BS.splitAt 16 $ encode txid
+    txAddrs = mapMaybe (extractOutputAddress . scriptOutput) (txOut tx)
+    txOps = map prevOutput $ txIn tx
+
+extractOutputAddress :: BS.ByteString -> Maybe BS.ByteString
+extractOutputAddress bs
+    | BS.null bs = Nothing
+      -- OP_DUP -> OP_PUSH160 -> Addr
+    | BS.head bs == 0x76 =
+        BS.take 20 . BS.drop 1 . snd <$> (dropPushData $ BS.drop 2 bs)
+      -- OP_HASH160 -> Addr
+    | BS.head bs == 0xa9 =
+        BS.take 20 . BS.drop 1 . snd <$> (dropPushData $ BS.drop 1 bs)
+      -- OP_PUSHDATA -> Pubkey
+    | otherwise = case dropPushData bs of
+        Just (len, pub) ->
+            Just $ getHash160 $ hash160 $ getHash256 $
+                hash256 $ BS.take (parseLen len) pub
+        _ -> Nothing
+
+parseLen :: BS.ByteString -> Int
+parseLen bs = case BS.length bs of
+    1 -> fromIntegral $ fromRight $ runGet getWord8 bs
+    2 -> fromIntegral $ fromRight $ runGet getWord16le bs
+    4 -> fromIntegral $ fromRight $ runGet getWord32le bs
+    _ -> error "Invalid parseLen"
+
+dropPushData :: BS.ByteString -> Maybe (BS.ByteString, BS.ByteString)
+dropPushData bs
+    | BS.null bs = Nothing
+    | BS.head bs <= 0x4b = Just $ BS.splitAt 1 bs
+    | otherwise = case BS.head bs of
+        0x4c -> Just $ BS.splitAt 1 $ BS.drop 1 bs
+        0x4d -> Just $ BS.splitAt 2 $ BS.drop 1 bs
+        0x4e -> Just $ BS.splitAt 4 $ BS.drop 1 bs
+        _ -> Nothing
 
 getAddressTxs :: (MonadLoggerIO m, MonadBaseControl IO m, MonadMask m)
               => Address -> NodeT m [TxHash]

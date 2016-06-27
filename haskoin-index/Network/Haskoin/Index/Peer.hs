@@ -118,7 +118,7 @@ startPeerPid :: (MonadLoggerIO m, MonadBaseControl IO m)
 startPeerPid pid ph@PeerHost{..} = do
     tid   <- liftIO myThreadId
     chan  <- liftIO . atomically $ newTBMChan 1024
-    bChan <- liftIO . atomically $ newTBMChan 1024
+    bChan <- liftIO . atomically $ newTBMChan 20
     pings <- liftIO $ newTVarIO []
 
     connected <- atomicallyNodeT $ do
