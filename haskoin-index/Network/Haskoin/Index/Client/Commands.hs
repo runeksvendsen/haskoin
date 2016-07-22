@@ -76,7 +76,7 @@ cmdOutpointTxs hashStr posStr =
     sendZmq (GetOutpointTxsR [OutPoint tid pos]) >>= go . parseResponse
   where
     tid = fromMaybe (error "Invalid txid") $ hexToTxHash $ cs hashStr
-    pos = fromMaybe (error "Invalid position") $ read posStr
+    pos = read posStr
     go (ResponseTxHashes txids) = formatOutput txids $
         unlines . map (cs . txHashToHex)
     go _ = error "Invalid TxHash response received"
