@@ -3,6 +3,7 @@ module Network.Haskoin.Index.Client.Commands
 , cmdStop
 , cmdStatus
 , cmdAddressTxs
+, cmdOutpointTxs
 , cmdVersion
 )
 where
@@ -66,9 +67,19 @@ cmdAddressTxs addrStr =
     sendZmq (GetAddressTxsR [addr]) >>= go . parseResponse
   where
     addr = fromMaybe (error "Invalid address") $ base58ToAddr $ cs addrStr
-    go (ResponseAddressTxs txids) = formatOutput txids $
+    go (ResponseTxHashes txids) = formatOutput txids $
         unlines . map (cs . txHashToHex)
-    go _ = error "Invalid AddressTxs response received"
+    go _ = error "Invalid TxHash response received"
+
+cmdOutpointTxs :: String -> String -> Handler ()
+cmdOutpointTxs hashStr posStr =
+    sendZmq (GetOutpointTxsR [OutPoint tid pos]) >>= go . parseResponse
+  where
+    tid = fromMaybe (error "Invalid txid") $ hexToTxHash $ cs hashStr
+    pos = fromMaybe (error "Invalid position") $ read posStr
+    go (ResponseTxHashes txids) = formatOutput txids $
+        unlines . map (cs . txHashToHex)
+    go _ = error "Invalid TxHash response received"
 
 cmdVersion :: Handler ()
 cmdVersion = liftIO $ do
@@ -138,7 +149,7 @@ printNodeStatus NodeStatus{..} =
     [ "Block Window      : " ] ++
     [ unwords [ "  - Height: " ++ show h ++ ","
               , "Downloaded: " ++ show i ++ ","
-              , "Peer: " ++ fromMaybe "not nassigned" (show <$> p) ++ ","
+              , "Peer: " ++ fromMaybe "unassigned" (show <$> p) ++ ","
               , "Started: " ++ fromMaybe "not started" (show <$> t) ++ ","
               , "Complete: " ++ show c
               , "(" ++ cs (blockHashToHex b) ++ ")"

@@ -2,7 +2,8 @@ Server commands:
   start [--detach]                         Start the haskoin daemon
   stop                                     Stop the haskoin daemon
   status                                   Display node runtime information
-  addrtxs addr                             Get txids related to an address
+  addrtxs addr                             Get txs funding a given address
+  optxs hash pos                           Get txs spending a given outpoint
 
 Other commands:
   version                                  Display version information

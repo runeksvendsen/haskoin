@@ -108,6 +108,7 @@ $(deriveJSON (dropFieldLabel 10) ''NodeStatus)
 data IndexRequest
     = GetNodeStatusR
     | GetAddressTxsR ![Address]
+    | GetOutpointTxsR ![OutPoint]
 
 $(deriveJSON
     defaultOptions
@@ -146,7 +147,7 @@ instance FromJSON IndexError where
 
 data IndexResponse
     = ResponseNodeStatus !NodeStatus
-    | ResponseAddressTxs ![TxHash]
+    | ResponseTxHashes ![TxHash]
     | ResponseError !IndexError
 
 $(deriveJSON
@@ -224,7 +225,15 @@ getAddressTxsR addrs = do
     $(logInfo) $ format $ unwords
         [ "GetAddressTxsR with", show (length addrs), "addresses" ]
     txids <- (nub . concat) <$> mapM getAddressTxs addrs
-    return $ ResponseAddressTxs txids
+    return $ ResponseTxHashes txids
+
+getOutpointTxsR :: (MonadLoggerIO m, MonadBaseControl IO m, MonadMask m)
+                => [OutPoint] -> NodeT m IndexResponse
+getOutpointTxsR ops = do
+    $(logInfo) $ format $ unwords
+        [ "GetOutpointTxsR with", show (length ops), "outpoints" ]
+    txids <- (nub . concat) <$> mapM getOutpointTxs ops
+    return $ ResponseTxHashes txids
 
 {- Helpers -}
 

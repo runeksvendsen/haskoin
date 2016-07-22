@@ -559,10 +559,10 @@ extractOutputAddress bs
     | BS.null bs = Nothing
       -- OP_DUP -> OP_PUSH160 -> Addr
     | BS.head bs == 0x76 =
-        BS.take 20 . BS.drop 1 . snd <$> (dropPushData $ BS.drop 2 bs)
+        BS.take 20 . snd <$> (dropPushData $ BS.drop 2 bs)
       -- OP_HASH160 -> Addr
     | BS.head bs == 0xa9 =
-        BS.take 20 . BS.drop 1 . snd <$> (dropPushData $ BS.drop 1 bs)
+        BS.take 20 . snd <$> (dropPushData $ BS.drop 1 bs)
       -- OP_PUSHDATA -> Pubkey
     | otherwise = case dropPushData bs of
         Just (len, pub) ->
@@ -590,24 +590,37 @@ dropPushData bs
 getAddressTxs :: (MonadLoggerIO m, MonadBaseControl IO m, MonadMask m)
               => Address -> NodeT m [TxHash]
 getAddressTxs addr = do
-    db <- asks sharedLevelDB
     $(logDebug) $ pack $ unwords
         [ "Fetching indexed transactions for address"
         , cs $ addrToBase58 addr
         ]
+    scanLevelDB $ getHash160 $ getAddrHash addr
+
+getOutpointTxs :: (MonadLoggerIO m, MonadBaseControl IO m, MonadMask m)
+               => OutPoint -> NodeT m [TxHash]
+getOutpointTxs op = do
+    $(logDebug) $ pack $ unwords
+        [ "Fetching indexed transactions for outpoint"
+        , show op
+        ]
+    scanLevelDB $ encode op
+
+scanLevelDB :: (MonadLoggerIO m, MonadBaseControl IO m, MonadMask m)
+            => BS.ByteString -> NodeT m [TxHash]
+scanLevelDB key = do
+    db <- asks sharedLevelDB
     withDBLock $ withIter db def $ \iter -> do
-        iterSeek iter addrPref
+        iterSeek iter key
         go iter []
   where
-    addrPref = encode addr
     go iter acc = iterEntry iter >>= \entM -> case entM of
-        Just (key, valTxid) -> do
-            let (keyAddr, keyTxid) = BS.splitAt 16 key
-            if keyAddr == addrPref
+        Just (key', val) -> do
+            let (keyLeft, keyRight) = BS.splitAt (BS.length key) key'
+            if keyLeft == key
                then do
-                    let err = error "Could not decode getAddressTxs"
+                    let err = error "Could not decode value in scanLevelDB"
                         txid = either (const err) id $
-                            decode $ keyTxid `BS.append` valTxid
+                            decode $ keyRight `BS.append` val
                     iterNext iter
                     go iter (txid:acc)
                else return acc

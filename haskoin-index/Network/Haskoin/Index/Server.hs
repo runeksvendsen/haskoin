@@ -299,4 +299,5 @@ dispatchRequest :: ( MonadLoggerIO m
 dispatchRequest req = case req of
     GetNodeStatusR -> getNodeStatusR
     GetAddressTxsR addrs -> getAddressTxsR addrs
+    GetOutpointTxsR ops -> getOutpointTxsR ops
 
